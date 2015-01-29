@@ -801,7 +801,7 @@ extern INTN StriCmp (
 		 IN      CONST CHAR16              *SecondString
 		 );
 
-extern INTN AsciiStriCmp (
+extern EFIAPI INTN AsciiStriCmp (
               IN      CONST CHAR8              *FirstString,
               IN      CONST CHAR8              *SecondString
               );
