@@ -59,7 +59,7 @@ else
 fi
 
 # Check if we need to patch the sources
-#PATCH_FILE=
+PATCH_FILE=
 #declare -r XCODE_MAJOR_VERSION="$(xcodebuild -version | sed -nE 's/^Xcode ([0-9]).*/\1/p')"
 #case "$XCODE_MAJOR_VERSION" in
 #    5) PATCH_FILE=;;
@@ -79,6 +79,11 @@ if [[ ! -x "$TOOLCHAIN_DIR"/bin/nasm ]]; then
 fi
 
 ## FUNCTIONS ##
+
+git_info() {
+  local base=${1:-1}
+  echo $((`git rev-list --all|wc -l` + $base))
+}
 
 function exitTrap() {
 
@@ -326,7 +331,7 @@ MainBuildScript() {
     checkToolchain
 
     if [[ -d .git ]]; then
-        git svn info | grep Revision | tr -cd [:digit:] >vers.txt
+        git_info 28 >vers.txt
     else
         svnversion -n | tr -d [:alpha:] >vers.txt
     fi
