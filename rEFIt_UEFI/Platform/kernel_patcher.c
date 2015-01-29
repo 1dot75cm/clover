@@ -643,15 +643,15 @@ BOOLEAN KernelPatchPm(VOID *kernelData)
     }
     //rehabman: for 10.10 (data portion)
     else if (0x00000002000000E2ULL == (*((UINT64 *)Ptr))) {
-      (*((UINT64 *)Ptr)) = 0x0000000200000000ULL;
+      (*((UINT64 *)Ptr)) = 0x0000000000000000ULL;
       DBG("Kernel power management patch 10.10(data1) found and patched\n");
     }
     else if (0x0000004C000000E2ULL == (*((UINT64 *)Ptr))) {
-      (*((UINT64 *)Ptr)) = 0x0000004C00000000ULL;
+      (*((UINT64 *)Ptr)) = 0x0000000000000000ULL;
       DBG("Kernel power management patch 10.10(data2) found and patched\n");
     }
     else if (0x00000190000000E2ULL == (*((UINT64 *)Ptr))) {
-      (*((UINT64 *)Ptr)) = 0x0000019000000000ULL;
+      (*((UINT64 *)Ptr)) = 0x0000000000000000ULL;
       DBG("Kernel power management patch 10.10(data3) found and patched\n");
       return TRUE;
     }
@@ -767,6 +767,54 @@ BOOLEAN KernelLapicPatch_32(VOID *kernelData)
     bytes[patchLocation + 4] = 0x90;
   }
   return TRUE;
+}
+
+
+BOOLEAN KernelHaswellEPatch(VOID *KernelData)
+{
+  // Credit to stinga11 for the patches used below
+  // Based on Pike R. Alpha's Haswell patch for Mavericks
+
+  UINT8   *Bytes;
+  UINT32  Index;
+  BOOLEAN PatchApplied;
+
+  DBG("Searching for Haswell-E patch pattern\n");
+
+  Bytes = (UINT8*)KernelData;
+  PatchApplied = FALSE;
+
+  for (Index = 0; Index < 0x1000000; ++Index) {
+    if (Bytes[Index] == 0x74 && Bytes[Index + 1] == 0x11 && Bytes[Index + 2] == 0x83 && Bytes[Index + 3] == 0xF8 && Bytes[Index + 4] == 0x3C) {
+      Bytes[Index + 4] = 0x3F;
+
+      DBG("Found Haswell-E pattern #1; patched.\n");
+
+      if (PatchApplied) {
+        break;
+      }
+
+      PatchApplied = TRUE;
+    }
+    
+    if (Bytes[Index] == 0xEB && Bytes[Index + 1] == 0x0A && Bytes[Index + 2] == 0x83 && Bytes[Index + 3] == 0xF8 && Bytes[Index + 4] == 0x3A) {
+      Bytes[Index + 4] = 0x3F;
+
+      DBG("Found Haswell-E pattern #2; patched.\n");
+
+      if (PatchApplied) {
+        break;
+      }
+
+      PatchApplied = TRUE;
+    }
+  }
+
+  if (!PatchApplied) {
+    DBG("Can't find Haswell-E patch pattern, kernel patch aborted.\n");
+  }
+
+  return PatchApplied;
 }
 	
 
@@ -1071,7 +1119,7 @@ VOID Get_PreLink()
 }
 
 VOID
-FindBootArgs(VOID)
+FindBootArgs(IN LOADER_ENTRY *Entry)
 {
   UINT8           *ptr;
   UINT8           archMode = sizeof(UINTN) * 8;
@@ -1095,12 +1143,12 @@ FindBootArgs(VOID)
       dtRoot = (CHAR8*)(UINTN)bootArgs2->deviceTreeP;
       KernelSlide = bootArgs2->kslide;
       
-      DBG("Found bootArgs2 at 0x%08x, DevTree at %p\n", ptr, dtRoot);
+      DBG_RT(Entry, "Found bootArgs2 at 0x%08x, DevTree at %p\n", ptr, dtRoot);
       //DBG("bootArgs2->kaddr = 0x%08x and bootArgs2->ksize =  0x%08x\n", bootArgs2->kaddr, bootArgs2->ksize);
       //DBG("bootArgs2->efiMode = 0x%02x\n", bootArgs2->efiMode);
-      DBG("bootArgs2->CommandLine = %a\n", bootArgs2->CommandLine);
-      DBG("bootArgs2->flags = %x %x\n", bootArgs2->flags);
-      DBG("bootArgs2->kslide = %x\n", bootArgs2->kslide);
+      DBG_RT(Entry, "bootArgs2->CommandLine = %a\n", bootArgs2->CommandLine);
+      DBG_RT(Entry, "bootArgs2->flags = %x %x\n", bootArgs2->flags);
+      DBG_RT(Entry, "bootArgs2->kslide = %x\n", bootArgs2->kslide);
       //gBS->Stall(5000000);
       
       // disable other pointer
@@ -1121,7 +1169,7 @@ FindBootArgs(VOID)
       // set vars
       dtRoot = (CHAR8*)(UINTN)bootArgs1->deviceTreeP;
       
-      DBG("Found bootArgs1 at 0x%08x, DevTree at %p\n", ptr, dtRoot);
+      DBG_RT(Entry, "Found bootArgs1 at 0x%08x, DevTree at %p\n", ptr, dtRoot);
       //DBG("bootArgs1->kaddr = 0x%08x and bootArgs1->ksize =  0x%08x\n", bootArgs1->kaddr, bootArgs1->ksize);
       //DBG("bootArgs1->efiMode = 0x%02x\n", bootArgs1->efiMode);
       
@@ -1135,7 +1183,7 @@ FindBootArgs(VOID)
 }
 
 VOID
-KernelAndKextPatcherInit(VOID)
+KernelAndKextPatcherInit(IN LOADER_ENTRY *Entry)
 {
   if (PatcherInited) {
     return;
@@ -1150,7 +1198,7 @@ KernelAndKextPatcherInit(VOID)
   
   // Find bootArgs - we need then for proper detection
   // of kernel Mach-O header
-  FindBootArgs();
+  FindBootArgs(Entry);
   if (bootArgs1 == NULL && bootArgs2 == NULL) {
     DBG("BootArgs not found - skipping patches!\n");
     return;
@@ -1167,11 +1215,11 @@ KernelAndKextPatcherInit(VOID)
     DBG("Found 32 bit kernel at 0x%p\n", KernelData);
     is64BitKernel = FALSE;
   } else if (MACH_GET_MAGIC(KernelData) == MH_MAGIC_64 || MACH_GET_MAGIC(KernelData) == MH_CIGAM_64) {
-    DBG("Found 64 bit kernel at 0x%p\n", KernelData);
+    DBG_RT(Entry, "Found 64 bit kernel at 0x%p\n", KernelData);
     is64BitKernel = TRUE;
   } else {
     // not valid Mach-O header - exiting
-    DBG("Kernel not found at 0x%p - skipping patches!", KernelData);
+    DBG_RT(Entry, "Kernel not found at 0x%p - skipping patches!", KernelData);
     KernelData = NULL;
     return;
   }
@@ -1180,7 +1228,7 @@ KernelAndKextPatcherInit(VOID)
   Get_PreLink();
     
   isKernelcache = PrelinkTextSize > 0 && PrelinkInfoSize > 0;
-  DBG("isKernelcache: %s\n", isKernelcache ? L"Yes" : L"No");
+  DBG_RT(Entry, "isKernelcache: %s\n", isKernelcache ? L"Yes" : L"No");
 }
 
 VOID
@@ -1200,7 +1248,7 @@ KernelAndKextsPatcherStart(IN LOADER_ENTRY *Entry)
     // Kernel patches
     //
     DBG_RT(Entry, "Enabled: ");
-      KernelAndKextPatcherInit();
+      KernelAndKextPatcherInit(Entry);
       if (KernelData == NULL) {
         if (Entry->KernelAndKextPatches->KPDebug) {
           DBG_RT(Entry, "ERROR: Kernel not found\n");
@@ -1224,7 +1272,7 @@ KernelAndKextsPatcherStart(IN LOADER_ENTRY *Entry)
   //other method for KernelCPU patch is FakeCPUID
   if (Entry->KernelAndKextPatches->FakeCPUID) {
     DBG_RT(Entry, "KernelCPUID patch to: 0x%06x\n", Entry->KernelAndKextPatches->FakeCPUID);
-    KernelAndKextPatcherInit();
+    KernelAndKextPatcherInit(Entry);
     if (KernelData == NULL) {
       if (Entry->KernelAndKextPatches->KPDebug) {
         DBG_RT(Entry, "ERROR: Kernel not found\n");
@@ -1241,7 +1289,7 @@ KernelAndKextsPatcherStart(IN LOADER_ENTRY *Entry)
   DBG_RT(Entry, "\nKernelPm patch: ");
   if (Entry->KernelAndKextPatches->KPKernelPm) {
     DBG_RT(Entry, "Enabled: ");
-    KernelAndKextPatcherInit();
+    KernelAndKextPatcherInit(Entry);
     if (KernelData == NULL) {
       if (Entry->KernelAndKextPatches->KPDebug) {
         DBG_RT(Entry, "ERROR: Kernel not found\n");
@@ -1261,7 +1309,7 @@ KernelAndKextsPatcherStart(IN LOADER_ENTRY *Entry)
   DBG_RT(Entry, "\nKernelLapic patch: ");
   if (Entry->KernelAndKextPatches->KPLapicPanic) {
     BOOLEAN patchedOk;
-    KernelAndKextPatcherInit();
+    KernelAndKextPatcherInit(Entry);
     if (KernelData == NULL) {
       if (Entry->KernelAndKextPatches->KPDebug) {
         DBG_RT(Entry, "ERROR: Kernel not found\n");
@@ -1285,9 +1333,31 @@ KernelAndKextsPatcherStart(IN LOADER_ENTRY *Entry)
   } else {
     DBG_RT(Entry, "Not done - Disabled.\n");
   }
+
+  DBG_RT(Entry, "\nHaswell-E patch: ");
+  if (Entry->KernelAndKextPatches->KPHaswellE) {
+    BOOLEAN patchedOk;
+    KernelAndKextPatcherInit(Entry);
+    if (KernelData == NULL) {
+      if (Entry->KernelAndKextPatches->KPDebug) {
+        DBG_RT(Entry, "ERROR: Kernel not found\n");
+        gBS->Stall(5000000);
+      }
+      return;
+    }
+
+    patchedOk = KernelHaswellEPatch(KernelData);
+    if (patchedOk) {
+      DBG_RT(Entry, "OK\n");
+    } else {
+      DBG_RT(Entry, " FAILED!\n");
+    }
+  } else {
+    DBG_RT(Entry, "Not done - Disabled.\n");
+  }
   
   if (Entry->KernelAndKextPatches->KPDebug) {
-    gBS->Stall(5000000);
+    gBS->Stall(2000000);
   }
   
   //
@@ -1307,7 +1377,7 @@ KernelAndKextsPatcherStart(IN LOADER_ENTRY *Entry)
          (gSettings.KextPatchesAllowed ? L'Y' : L'n')
          );
   if (Needed && gSettings.KextPatchesAllowed) {
-    KernelAndKextPatcherInit();
+    KernelAndKextPatcherInit(Entry);
     if (KernelData == NULL) {
       if (Entry->KernelAndKextPatches->KPDebug) {
         DBG_RT(Entry, "ERROR: Kernel not found\n");
@@ -1336,7 +1406,7 @@ KernelAndKextsPatcherStart(IN LOADER_ENTRY *Entry)
     Entry->Flags = OSFLAG_UNSET(Entry->Flags, OSFLAG_WITHKEXTS);
     if (Entry->KernelAndKextPatches->KPDebug) {
       DBG_RT(Entry, "\nInjectKexts: disabled because FakeSMC is already present and InjectKexts option set to Detect\n");
-      gBS->Stall(5000000);
+      gBS->Stall(500000);
     }
   }
   if ((Entry != 0) && OSFLAG_ISSET(Entry->Flags, OSFLAG_WITHKEXTS))
@@ -1353,12 +1423,12 @@ KernelAndKextsPatcherStart(IN LOADER_ENTRY *Entry)
       // var exists - just exit
       if (Entry->KernelAndKextPatches->KPDebug) {
         DBG_RT(Entry, "\nInjectKexts: skipping, FSInject already injected them\n");
-        gBS->Stall(5000000);
+        gBS->Stall(500000);
       }
       return;
     }
     
-    KernelAndKextPatcherInit();
+    KernelAndKextPatcherInit(Entry);
     if (KernelData == NULL) {
       return;
     }

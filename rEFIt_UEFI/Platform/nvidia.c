@@ -995,6 +995,7 @@ static nvidia_pci_info_t nvidia_card_generic[] = {
 	// 0F90 - 0F9F
 	// 0FA0 - 0FAF
 	// 0FB0 - 0FBF
+    { 0x10DE0FBB,	"GeForce GTX 970" },
 	// 0FC0 - 0FCF
 	{ 0x10DE0FC0,	"GeForce GT 640" },
 	{ 0x10DE0FC1,	"GeForce GT 640" },
@@ -1373,6 +1374,7 @@ static nvidia_card_info_t nvidia_card_exceptions[] = {
 
 	{ 0x10DE0E23,	0x10B00401,	"Gainward GeForce GTX 460" },
 	// 0F00 - 0FFF
+    { 0x10DE0FBB,	0x38422974,	"EVGA GTX 970 OC" },
 	{ 0x10DE0FD2,	0x10280595,	"Dell GeForce GT 640M LE" },
 	{ 0x10DE0FD2,	0x102805B2,	"Dell GeForce GT 640M LE" },
 	// 1000 - 10FF

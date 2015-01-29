@@ -1165,6 +1165,7 @@ typedef enum {
   MacBook41,
   MacBook52,
   MacBookPro51,
+  MacBookPro62,
   MacBookPro81,
   MacBookPro83,
   MacBookPro92,
@@ -1210,7 +1211,8 @@ typedef struct {
 } RAM_SLOT_INFO; 
 
 // The maximum number of RAM slots to detect
-#define MAX_RAM_SLOTS 24
+// even for 3-channels chipset X58 there are no more then 8 slots
+#define MAX_RAM_SLOTS 8
 // The maximum sane frequency for a RAM module
 #define MAX_RAM_FREQUENCY 5000
 

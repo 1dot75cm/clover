@@ -636,16 +636,21 @@ static CHAR8 *SearchString (
 
 VOID DumpKernelAndKextPatches(KERNEL_AND_KEXT_PATCHES *Patches)
 {
-   DBG("Kernel and Kext Patches:\n");
+  if (!Patches) {
+    DBG("Kernel and Kext Patches null pointer\n");
+    return;
+  }
+   DBG("Kernel and Kext Patches at %p:\n", Patches);
    DBG("\tAllowed: %c\n", gSettings.KextPatchesAllowed ? 'y' : 'n');
    DBG("\tDebug: %c\n", Patches->KPDebug ? 'y' : 'n');
    DBG("\tKernelCpu: %c\n", Patches->KPKernelCpu ? 'y' : 'n');
    DBG("\tLapic: %c\n", Patches->KPLapicPanic ? 'y' : 'n');
+   DBG("\tHaswell-E: %c\n", Patches->KPHaswellE ? 'y' : 'n');
    DBG("\tAICPUPM: %c\n", Patches->KPAsusAICPUPM ? 'y' : 'n');
    DBG("\tAppleRTC: %c\n", Patches->KPAppleRTC ? 'y' : 'n');
    DBG("\tKernelPm: %c\n", Patches->KPKernelPm ? 'y' : 'n');
    DBG("\tFakeCPUID: 0x%x\n", Patches->FakeCPUID);
-   DBG("\tATIController: %s\n", Patches->KPATIConnectorsController);
+   DBG("\tATIController: %s\n", (Patches->KPATIConnectorsController == NULL) ? L"null": Patches->KPATIConnectorsController);
    DBG("\tATIDataLength: %d\n", Patches->KPATIConnectorsDataLen);
    DBG("\t%d Kexts to load\n", Patches->NrForceKexts);
    if (Patches->ForceKexts) {
@@ -694,6 +699,13 @@ static VOID StartLoader(IN LOADER_ENTRY *Entry)
          DivU64x32(gCPUStructure.FSBFrequency, kilo),
          gCPUStructure.MaxSpeed);
 
+  if (gBootArgsChanged) {
+    CopyMem (Entry->KernelAndKextPatches,
+             &gSettings.KernelAndKextPatches,
+             sizeof(KERNEL_AND_KEXT_PATCHES));
+    DBG("KernelAndKextPatches copyed to started entry\n");
+             
+  }
   DumpKernelAndKextPatches(Entry->KernelAndKextPatches);
 
 //  MsgLog("Turbo=%c\n", gSettings.Turbo?'Y':'N');
@@ -837,6 +849,12 @@ static VOID StartLoader(IN LOADER_ENTRY *Entry)
   }
   else if (OSTYPE_IS_WINDOWS(Entry->LoaderType)) {
     
+    DBG("Closing events for Windows\n");
+    gBS->CloseEvent (OnReadyToBootEvent);
+    gBS->CloseEvent (ExitBootServiceEvent);
+    gBS->CloseEvent (mSimpleFileSystemChangeEvent);
+
+    
     if (gEmuVariableControl != NULL) {
       gEmuVariableControl->UninstallEmulation(gEmuVariableControl);
     }
@@ -846,6 +864,12 @@ static VOID StartLoader(IN LOADER_ENTRY *Entry)
       
   }
   else if (OSTYPE_IS_LINUX(Entry->LoaderType) || (Entry->LoaderType == OSTYPE_LINEFI)) {
+    
+    DBG("Closing events for Linux\n");
+    gBS->CloseEvent (OnReadyToBootEvent);
+    gBS->CloseEvent (ExitBootServiceEvent);
+    gBS->CloseEvent (mSimpleFileSystemChangeEvent);
+
     if (gEmuVariableControl != NULL) {
       gEmuVariableControl->UninstallEmulation(gEmuVariableControl);
     }
@@ -886,7 +910,7 @@ static VOID StartLoader(IN LOADER_ENTRY *Entry)
       OSTYPE_IS_OSX_INSTALLER(Entry->LoaderType)) {
     
     if (DoHibernateWake) {
-      DBG("Closing events\n");
+      DBG("Closing events for wake\n");
       gBS->CloseEvent (OnReadyToBootEvent);
       gBS->CloseEvent (ExitBootServiceEvent);
       gBS->CloseEvent (mSimpleFileSystemChangeEvent);
@@ -1743,6 +1767,8 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
   gFirmwareClover = StrCmp(gST->FirmwareVendor, L"CLOVER") == 0;
   InitializeConsoleSim();
   InitBooterLog();
+  ZeroMem((VOID*)&gGraphics[0], sizeof(GFX_PROPERTIES) * 4);
+  
   DBG("\n");
   MsgLog("Now is %d.%d.%d,  %d:%d:%d (GMT+%d)\n",
       Now.Day, Now.Month, Now.Year, Now.Hour, Now.Minute, Now.Second, Now.TimeZone);
@@ -1791,7 +1817,7 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
   }
   
   PrepatchSmbios();
-  
+
 #ifdef REVISION_STR
   DBG(REVISION_STR);
 #endif
@@ -1810,6 +1836,10 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
   }
   DBG("  running on %a\n",   gSettings.OEMProduct);
   DBG("... with board %a\n", gSettings.OEMBoard);
+
+  GetCPUProperties();
+  GetDevices();
+  GetDefaultSettings();
   
   // LoadOptions Parsing
   DBG("Clover load options size = %d bytes\n", SelfLoadedImage->LoadOptionsSize);
@@ -1860,7 +1890,7 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
 
   gSettings.PointerEnabled = TRUE;
   gSettings.PointerSpeed = 2;
-  gSettings.DoubleClickTime = 500; //TODO - make it constant as nobody change it 
+  gSettings.DoubleClickTime = 500; //TODO - make it constant as nobody change it
 
 #ifdef ENABLE_SECURE_BOOT
   InitializeSecureBoot();
@@ -1966,24 +1996,27 @@ RefitMain (IN EFI_HANDLE           ImageHandle,
     FreePool(FirstMessage);
   }
   
-  ZeroMem((VOID*)&gGraphics[0], sizeof(GFX_PROPERTIES) * 4);
+//  ZeroMem((VOID*)&gGraphics[0], sizeof(GFX_PROPERTIES) * 4);
   
 //  DumpBiosMemoryMap();
 
   GuiEventsInitialize();
   
-  GetCPUProperties();
+//  GetCPUProperties();
   if (!gSettings.EnabledCores) {
     gSettings.EnabledCores = gCPUStructure.Cores;
   }
-  GetDevices();
+//  GetDevices();
+
+
   GetMacAddress();
   DBG("ScanSPD() start\n");
   ScanSPD();
   DBG("ScanSPD() end\n");
 
   SetPrivateVarProto();
-  GetDefaultSettings();
+//  GetDefaultSettings();
+  GetAcpiTablesList();
   DBG("Calibrated TSC frequency =%ld =%ldMHz\n", gCPUStructure.TSCCalibr, DivU64x32(gCPUStructure.TSCCalibr, Mega));
   if (gCPUStructure.TSCCalibr > 200000000ULL) {  //200MHz
     gCPUStructure.TSCFrequency = gCPUStructure.TSCCalibr;

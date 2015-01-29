@@ -455,11 +455,13 @@ typedef struct KERNEL_AND_KEXT_PATCHES
    BOOLEAN KPDebug;
    BOOLEAN KPKernelCpu;
    BOOLEAN KPLapicPanic;
+   BOOLEAN KPHaswellE;
    BOOLEAN KPAsusAICPUPM;
    BOOLEAN KPAppleRTC;
    BOOLEAN KPKernelPm;
-   UINT8   pad[2];
+   UINT8   pad[1];
    UINT32  FakeCPUID;
+    UINT32  align0;
    CHAR16  *KPATIConnectorsController;
 #if defined(MDE_CPU_IA32)
    UINT32  align1;
@@ -480,12 +482,14 @@ typedef struct KERNEL_AND_KEXT_PATCHES
 #endif
 
    INT32   NrKexts;
+  UINT32  align40;
    KEXT_PATCH *KextPatches;
 #if defined(MDE_CPU_IA32)
    UINT32  align5;
 #endif
 
    INT32    NrForceKexts;
+  UINT32  align50;
    CHAR16 **ForceKexts;
 #if defined(MDE_CPU_IA32)
    UINT32 align6;

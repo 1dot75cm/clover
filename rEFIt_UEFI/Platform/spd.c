@@ -40,6 +40,10 @@
 extern MEM_STRUCTURE		gRAM;
 //extern DMI*					gDMI;
 
+//==>
+extern UINT16 TotalCount;
+//<==
+
 PCI_TYPE00          gPci;
 BOOLEAN             smbIntel;
 
@@ -56,7 +60,8 @@ CHAR8 *spd_memory_types[] =
 	"DDR2 SDRAM",   /* 08h  SDRAM DDR 2 */
 	"",				/* 09h  Undefined */
 	"",				/* 0Ah  Undefined */
-	"DDR3 SDRAM"	/* 0Bh  SDRAM DDR 3 */
+	"DDR3 SDRAM",	/* 0Bh  SDRAM DDR 3 */
+  "DDR4 SDRAM" /* 0Ch SDRAM DDR 4 */
 };
 
 #define UNKNOWN_MEM_TYPE 2
@@ -73,7 +78,8 @@ UINT8 spd_mem_to_smbios[] =
 	SMB_MEM_TYPE_DDR2,		/* 08h  SDRAM DDR 2 */
 	UNKNOWN_MEM_TYPE,		/* 09h  Undefined */
 	UNKNOWN_MEM_TYPE,		/* 0Ah  Undefined */
-	SMB_MEM_TYPE_DDR3		/* 0Bh  SDRAM DDR 3 */
+	SMB_MEM_TYPE_DDR3,		/* 0Bh  SDRAM DDR 3 */
+  SMB_MEM_TYPE_DDR4 /* 0Ch SDRAM DDR 4 */
 };
 #define SPD_TO_SMBIOS_SIZE (sizeof(spd_mem_to_smbios)/sizeof(UINT8))
 
@@ -118,7 +124,7 @@ UINT8 spd_indexes[] = {
 	SPD_NUM_COLUMNS,
 	SPD_NUM_DIMM_BANKS,
 	SPD_NUM_BANKS_PER_SDRAM,
-	4,7,8,9,10,11,12,64, /* TODO: give names to these values */
+	7,8,9,10,11,12,64, /* TODO: give names to these values */
 	95,96,97,98, 122,123,124,125, /* UIS */
   /* XMP */
   SPD_XMP_SIG1,
@@ -136,7 +142,7 @@ UINT8 spd_indexes[] = {
 
 /** Read one byte from i2c, used for reading SPD */
 
-UINT8 smb_read_byte(UINT32 base, UINT8 adr, UINT8 cmd)
+UINT8 smb_read_byte(UINT32 base, UINT8 adr, UINT16 cmd)
 {
   //   INTN l1, h1, l2, h2;
   UINT64 t, t1, t2;
@@ -154,7 +160,7 @@ UINT8 smb_read_byte(UINT32 base, UINT8 adr, UINT8 cmd)
               return 0xFF;                  // break
       }
 	
-      IoWrite8(base + SMBHSTCMD, cmd);
+      IoWrite16(base + SMBHSTCMD, cmd);
       IoWrite8(base + SMBHSTADD, (adr << 1) | 0x01 );
       IoWrite8(base + SMBHSTCNT, 0x48 );
 	
@@ -183,7 +189,7 @@ UINT8 smb_read_byte(UINT32 base, UINT8 adr, UINT8 cmd)
       }
     
       IoWrite8(base + SMBHSTSTS_NV, 0x00); // clear status register
-      IoWrite8(base + SMBHSTCMD_NV, cmd);
+      IoWrite16(base + SMBHSTCMD_NV, cmd);
       IoWrite8(base + SMBHSTADD_NV, (adr << 1) | 0x01 );
       IoWrite8(base + SMBHPRTCL_NV, 0x07 );
       t1 = AsmReadTsc();
@@ -207,28 +213,44 @@ UINT8 smb_read_byte(UINT32 base, UINT8 adr, UINT8 cmd)
 VOID init_spd(UINT8* spd, UINT32 base, UINT8 slot)
 {
 	INTN i;
-	for (i=0; i< SPD_INDEXES_SIZE; i++)
+	for (i=0; i< SPD_INDEXES_SIZE; i++) {
 		READ_SPD(spd, base, slot, spd_indexes[i]);
-	
+  }
+
+  if (spd[SPD_MEMORY_TYPE] == SPD_MEMORY_TYPE_SDRAM_DDR4) {
+    for (i = SPD_DDR4_MANUFACTURER_ID_CODE; i < SPD_DDR4_REVISION_CODE; i++) {
+      READ_SPD(spd, base, slot, (UINT16)i);
+    }
+  }
+
 }
 
-/** Get Vendor Name from spd, 2 cases handled DDR3 and DDR2,
- have different formats, always return a valid ptr.*/
+// Get Vendor Name from spd, 3 cases handled DDR3, DDR4 and DDR2,
+// have different formats, always return a valid ptr.
 CHAR8* getVendorName(RAM_SLOT_INFO* slot, UINT8 *spd, UINT32 base, UINT8 slot_num)
 {
   UINT8 bank = 0;
   UINT8 code = 0;
   INTN  i = 0;
   //UINT8 * spd = (UINT8 *) slot->spd;
-  
-  if (spd[SPD_MEMORY_TYPE]==SPD_MEMORY_TYPE_SDRAM_DDR3) { // DDR3
+  if (spd[SPD_MEMORY_TYPE]==SPD_MEMORY_TYPE_SDRAM_DDR4) { // DDR4
+    bank = spd[SPD_DDR4_MANUFACTURER_ID_CODE + 1]; 
+    code = spd[SPD_DDR4_MANUFACTURER_ID_CODE];
+    for (i=0; i < VEN_MAP_SIZE; i++) {
+      if (bank==vendorMap[i].bank && code==vendorMap[i].code) {
+        return vendorMap[i].name;
+      }
+    }
+  } else if (spd[SPD_MEMORY_TYPE]==SPD_MEMORY_TYPE_SDRAM_DDR3) { // DDR3
     bank = (spd[SPD_DDR3_MEMORY_BANK] & 0x07f); // constructors like Patriot use b7=1
     code = spd[SPD_DDR3_MEMORY_CODE];
-    for (i=0; i < VEN_MAP_SIZE; i++)
-      if (bank==vendorMap[i].bank && code==vendorMap[i].code)
+    for (i=0; i < VEN_MAP_SIZE; i++) {
+      if (bank==vendorMap[i].bank && code==vendorMap[i].code) {
         return vendorMap[i].name;
-  }
-  else if (spd[SPD_MEMORY_TYPE]==SPD_MEMORY_TYPE_SDRAM_DDR2 || spd[SPD_MEMORY_TYPE]==SPD_MEMORY_TYPE_SDRAM_DDR) {
+      }
+    }
+  } else if (spd[SPD_MEMORY_TYPE]==SPD_MEMORY_TYPE_SDRAM_DDR2 ||
+             spd[SPD_MEMORY_TYPE]==SPD_MEMORY_TYPE_SDRAM_DDR) {
     if(spd[64]==0x7f) {
       for (i=64; i<72 && spd[i]==0x7f;i++) {
 			  bank++;
@@ -240,19 +262,26 @@ CHAR8* getVendorName(RAM_SLOT_INFO* slot, UINT8 *spd, UINT32 base, UINT8 slot_nu
       code = spd[64];
       bank = 0;
     }
-    for (i=0; i < VEN_MAP_SIZE; i++)
-      if (bank==vendorMap[i].bank && code==vendorMap[i].code)
+    for (i=0; i < VEN_MAP_SIZE; i++) { 
+      if (bank==vendorMap[i].bank && code==vendorMap[i].code) {
         return vendorMap[i].name;
+      }
+    }
   }
   /* OK there is no vendor id here lets try to match the partnum if it exists */
-  if (AsciiStrStr(slot->PartNo,"GU332") == slot->PartNo) // Unifosa fingerprint
+  if (AsciiStrStr(slot->PartNo,"GU332") == slot->PartNo) { // Unifosa fingerprint
     return "Unifosa";
+  }
   return "NoName";
 }
 
 /** Get Default Memory Module Speed (no overclocking handled) */
 UINT16 getDDRspeedMhz(UINT8 * spd)
 {
+  if (spd[SPD_MEMORY_TYPE] == SPD_MEMORY_TYPE_SDRAM_DDR4) {
+    DBG("Sorry, DDR4 is not fully implemented! Use settings in config.plist\n");
+    return 3200;
+  }
   if ((spd[SPD_MEMORY_TYPE] == SPD_MEMORY_TYPE_SDRAM_DDR2) ||
       (spd[SPD_MEMORY_TYPE] == SPD_MEMORY_TYPE_SDRAM_DDR)) {
     switch(spd[9]) {
@@ -376,11 +405,12 @@ CHAR8* getDDRSerial(UINT8* spd)
 {
   CHAR8* asciiSerial; //[16];
   asciiSerial = AllocatePool(17);
-  if (spd[SPD_MEMORY_TYPE]==SPD_MEMORY_TYPE_SDRAM_DDR3) // DDR3
-  {
+  if (spd[SPD_MEMORY_TYPE]==SPD_MEMORY_TYPE_SDRAM_DDR4) { // DDR4
+    AsciiSPrint(asciiSerial, 17, "%2X%2X%2X%2X%2X%2X%2X%2X", SMST(325) /*& 0x7*/, SLST(325), SMST(326), SLST(326), SMST(327), SLST(327), SMST(328), SLST(328));
+  } else if (spd[SPD_MEMORY_TYPE]==SPD_MEMORY_TYPE_SDRAM_DDR3) { // DDR3
     AsciiSPrint(asciiSerial, 17, "%2X%2X%2X%2X%2X%2X%2X%2X", SMST(122) /*& 0x7*/, SLST(122), SMST(123), SLST(123), SMST(124), SLST(124), SMST(125), SLST(125));
-  } else if (spd[SPD_MEMORY_TYPE]==SPD_MEMORY_TYPE_SDRAM_DDR2 || spd[SPD_MEMORY_TYPE]==SPD_MEMORY_TYPE_SDRAM_DDR) {// DDR2 or DDR
-    
+  } else if (spd[SPD_MEMORY_TYPE]==SPD_MEMORY_TYPE_SDRAM_DDR2 ||
+             spd[SPD_MEMORY_TYPE]==SPD_MEMORY_TYPE_SDRAM_DDR) {  // DDR2 or DDR    
     AsciiSPrint(asciiSerial, 17, "%2X%2X%2X%2X%2X%2X%2X%2X", SMST(95) /*& 0x7*/, SLST(95), SMST(96), SLST(96), SMST(97), SLST(97), SMST(98), SLST(98));
   } else {
     AsciiStrCpy(asciiSerial, "0000000000000000");
@@ -392,21 +422,23 @@ CHAR8* getDDRSerial(UINT8* spd)
 /** Get DDR3 or DDR2 Part Number, always return a valid ptr */
 CHAR8* getDDRPartNum(UINT8* spd, UINT32 base, UINT8 slot)
 {
-  UINT8 i, start=0, index = 0;
+  UINT16 i, start=0, index = 0;
   CHAR8 c;
 	CHAR8* asciiPartNo = AllocatePool(32); //[32];
-  
-  if (spd[SPD_MEMORY_TYPE]==SPD_MEMORY_TYPE_SDRAM_DDR3) {
+
+  if (spd[SPD_MEMORY_TYPE] == SPD_MEMORY_TYPE_SDRAM_DDR4) {
+		start = 329;
+	} else if (spd[SPD_MEMORY_TYPE] == SPD_MEMORY_TYPE_SDRAM_DDR3) {
 		start = 128;
-	}
-  else if (spd[SPD_MEMORY_TYPE]==SPD_MEMORY_TYPE_SDRAM_DDR2 || spd[SPD_MEMORY_TYPE]==SPD_MEMORY_TYPE_SDRAM_DDR) {
+	} else if (spd[SPD_MEMORY_TYPE] == SPD_MEMORY_TYPE_SDRAM_DDR2 ||
+             spd[SPD_MEMORY_TYPE] == SPD_MEMORY_TYPE_SDRAM_DDR) {
 		start = 73;
 	}
 	
   // Check that the spd part name is zero terminated and that it is ascii:
   ZeroMem(asciiPartNo, 32);  //sizeof(asciiPartNo));
-	for (i=start; i < start + 32; i++) {
-		READ_SPD(spd, base, slot, i); // only read once the corresponding model part (ddr3 or ddr2)
+	for (i = start; i < start + 20; i++) {
+		READ_SPD(spd, base, slot, (UINT8)i); // only read once the corresponding model part (ddr3 or ddr2)
 		c = spd[i];
 		if (IS_ALFA(c) || IS_DIGIT(c) || IS_PUNCT(c)) // It seems that System Profiler likes only letters and digits...
 			asciiPartNo[index++] = c;
@@ -433,6 +465,8 @@ VOID read_smb(EFI_PCI_IO_PROTOCOL *PciIo)
 	UINT8*			spdbuf;
 	UINT16			vid, did;
 	
+    UINT8                  TotalSlotsCount;
+
 	vid = gPci.Hdr.VendorId;
 	did = gPci.Hdr.DeviceId;
   
@@ -503,7 +537,15 @@ VOID read_smb(EFI_PCI_IO_PROTOCOL *PciIo)
 	spdbuf = AllocateZeroPool(MAX_SPD_SIZE);
 	
   // Search MAX_RAM_SLOTS slots
-  for (i = 0; i <  MAX_RAM_SLOTS; i++){
+  //==>
+/*  TotalSlotsCount = (UINT8) TotalCount;
+  if (!TotalSlotsCount) {
+    TotalSlotsCount = MAX_RAM_SLOTS;
+  } */
+  TotalSlotsCount = MAX_RAM_SLOTS;
+  DBG("Slots to scan [%d]...\n", TotalSlotsCount);
+  for (i = 0; i <  TotalSlotsCount; i++){
+  //<==
     ZeroMem(spdbuf, MAX_SPD_SIZE);
     READ_SPD(spdbuf, base, i, SPD_MEMORY_TYPE);
     if (spdbuf[SPD_MEMORY_TYPE] == 0xFF) continue;
@@ -536,6 +578,18 @@ VOID read_smb(EFI_PCI_IO_PROTOCOL *PciIo)
         gRAM.SPD[i].ModuleSize -= (spdbuf[7] & 0x7) + 25;
         gRAM.SPD[i].ModuleSize = ((1 << gRAM.SPD[i].ModuleSize) * (((spdbuf[7] >> 3) & 0x1f) + 1));
         
+        break;
+        
+      case SPD_MEMORY_TYPE_SDRAM_DDR4:
+        
+        gRAM.SPD[i].Type = MemoryTypeDdr4;
+        gRAM.SPD[i].ModuleSize = spdbuf[4] & 0x0f;
+        gRAM.SPD[i].ModuleSize = (1 << gRAM.SPD[i].ModuleSize) * 256;
+        
+        break;
+      
+      default:
+        gRAM.SPD[i].ModuleSize = 0;
         break;
     }
     

@@ -30,6 +30,7 @@
 #define SMB_MEM_TYPE_DDR2		19
 #define SMB_MEM_TYPE_FBDIMM		20
 #define SMB_MEM_TYPE_DDR3		24				// Supported in 10.5.6+ AppleSMBIOS
+#define SMB_MEM_TYPE_DDR4  26
 
 /* Memory Configuration Types */ 
 #define SMB_MEM_CHANNEL_UNKNOWN		0
@@ -42,7 +43,7 @@
 #define RAM_SLOT_ENUMERATOR		{0, 2, 4, 1, 3, 5, 6, 8, 10, 7, 9, 11}
 
 /* Maximum number of SPD bytes */
-#define MAX_SPD_SIZE			256
+#define MAX_SPD_SIZE			384  /* for DDR4 */
 
 typedef struct _vidTag {
     UINT8			bank;

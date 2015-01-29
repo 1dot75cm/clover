@@ -273,7 +273,7 @@ SetupDataForOSX()
 #ifdef FIRMWARE_REVISION
   Revision = StrDecimalToUintn(FIRMWARE_REVISION);
 #else
-  Revision = StrDecimalToUintn(gST->FirmwareRevision);
+  Revision = gST->FirmwareRevision;
 #endif
 
   // fool proof
